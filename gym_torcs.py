@@ -272,12 +272,13 @@ class TorcsEnv:
             Observation = col.namedtuple('Observaion', names)
 
             # Get RGB from observation
-            image_rgb = self.obs_vision_to_image_rgb(raw_obs[names[8]])
+            image_rgb = self.obs_vision_to_image_rgb(raw_obs['img'])
 
             return Observation(focus=np.array(raw_obs['focus'], dtype=np.float32)/200.,
                                speedX=np.array(raw_obs['speedX'], dtype=np.float32)/self.default_speed,
                                speedY=np.array(raw_obs['speedY'], dtype=np.float32)/self.default_speed,
                                speedZ=np.array(raw_obs['speedZ'], dtype=np.float32)/self.default_speed,
+                               angle=np.array(raw_obs['angle'], dtype=np.float32)/3.1416,
                                opponents=np.array(raw_obs['opponents'], dtype=np.float32)/200.,
                                rpm=np.array(raw_obs['rpm'], dtype=np.float32),
                                track=np.array(raw_obs['track'], dtype=np.float32)/200.,

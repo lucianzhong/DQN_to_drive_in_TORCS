@@ -3,7 +3,6 @@ import base64
 from datetime import datetime
 import os
 import shutil
-
 import numpy as np
 import socketio
 import eventlet
@@ -11,166 +10,214 @@ import eventlet.wsgi
 from PIL import Image
 from flask import Flask
 from io import BytesIO
-
-
-
-
 # RF imports
 from gym_torcs import TorcsEnv
 import gym
 import tensorflow as tf
 import random
 from collections import deque
+import cv2
+
 # Hyper Parameters for DQN
-GAMMA = 0.9 # discount factor for target Q
-INITIAL_EPSILON = 0.5 # starting value of epsilon
-FINAL_EPSILON = 0.01 # final value of epsilon
-REPLAY_SIZE = 50 # experience replay buffer size
-BATCH_SIZE = 5 # size of minibatch
-
-
-# The DQN class
-class DQN():
-  # DQN Agent
-  def __init__(self):
-    # init experience replay
-    self.replay_buffer = deque()
-    # init some parameters
-    self.time_step = 0
-    self.epsilon = INITIAL_EPSILON
-    self.state_dim = 29  # GYM_TORCS
-    self.action_dim = 3  #steering_left $ acceleration & brake 
-
-    self.create_Q_network()
-    self.create_training_method()
-
-    # Init session
-    self.session = tf.InteractiveSession()
-    self.session.run(tf.initialize_all_variables())
-
-
-  def create_Q_network(self):
-    # network weights
-    W1 = self.weight_variable([self.state_dim,20])
-    b1 = self.bias_variable([20])
-    W2 = self.weight_variable([20,self.action_dim])
-    b2 = self.bias_variable([self.action_dim])
-    # input layer
-    self.state_input = tf.placeholder("float",[None,self.state_dim])
-    # hidden layers
-    h_layer = tf.nn.relu(tf.matmul(self.state_input,W1) + b1)
-    # Q Value layer
-    self.Q_value = tf.matmul(h_layer,W2) + b2
-
-  def create_training_method(self):
-    self.action_input = tf.placeholder("float",[None,self.action_dim]) # one hot presentation
-    self.y_input = tf.placeholder("float",[None])
-    Q_action = tf.reduce_sum(tf.multiply(self.Q_value,self.action_input),reduction_indices = 1)
-    self.cost = tf.reduce_mean(tf.square(self.y_input - Q_action))
-    self.optimizer = tf.train.AdamOptimizer(0.0001).minimize(self.cost)
-
-  def perceive(self,state,action,reward,next_state,done): #感知信息
-    one_hot_action = np.zeros(self.action_dim)
-    print("one_hot_action")
-    print(one_hot_action)
-    one_hot_action=action####################################################################
-
-    self.replay_buffer.append((state,one_hot_action,reward,next_state,done))
-    if len(self.replay_buffer) > REPLAY_SIZE:
-      self.replay_buffer.popleft()
-    if len(self.replay_buffer) > BATCH_SIZE:
-      self.train_Q_network()
-
-  def train_Q_network(self):
-    self.time_step += 1
-    # Step 1: obtain random minibatch from replay memory
-    minibatch = random.sample(self.replay_buffer,BATCH_SIZE)
-    state_batch = [data[0] for data in minibatch]
-    action_batch = [data[1] for data in minibatch]
-    reward_batch = [data[2] for data in minibatch]
-    next_state_batch = [data[3] for data in minibatch]
-
-    # Step 2: calculate y
-    y_batch = []
-    Q_value_batch = self.Q_value.eval(feed_dict={self.state_input:next_state_batch})
-    for i in range(0,BATCH_SIZE):
-      done = minibatch[i][4]
-      if done:
-        y_batch.append(reward_batch[i])
-      else :
-        y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[i]))
-
-    self.optimizer.run(feed_dict={
-      self.y_input:y_batch,
-      self.action_input:action_batch,
-      self.state_input:state_batch
-      })
-
-##################################################################################################
-  def egreedy_action(self,state): #获取包含随机的动作
-    Q_value = self.Q_value.eval(feed_dict = {self.state_input:[state]})[0]
-    #return Q_value
-    if random.random() <= self.epsilon:
-      return (random.randint(0,self.action_dim - 1),random.randint(0,self.action_dim - 1) ,random.randint(0,self.action_dim - 1)  )
-
-    else:
-      return Q_value
-
-    self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON)/10000  ###############################################
-
-  def action(self,state):
-    return np.argmax(self.Q_value.eval(feed_dict = {self.state_input:[state]})[0])
-
-  def weight_variable(self,shape):
-    initial = tf.truncated_normal(shape)
-    return tf.Variable(initial)
-
-  def bias_variable(self,shape):
+ACTIONS = 3 				# number of valid actions
+GAMMA = 0.99 				# decay rate of past observations
+OBSERVE = 10 			# timesteps to observe before training
+EXPLORE = 20. 		    # frames over which to anneal epsilon
+FINAL_EPSILON = 0.0001 		# final value of epsilon
+INITIAL_EPSILON = 0.001    # starting value of epsilon
+REPLAY_MEMORY = 50 		# number of previous transitions to remember
+BATCH = 5 					# size of minibatch
+FRAME_PER_ACTION = 1
+##########################################################################################################################################################
+# 权重
+def weight_variable(shape):
+    initial = tf.truncated_normal(shape, stddev = 0.01) #tf.truncated_normal(shape, mean, stddev) :shape表示生成张量的维度，mean是均值，stddev是标准差。这个函数产生正太分布，均值和标准差自己设定。
+    return tf.Variable(initial)#
+def bias_variable(shape):
     initial = tf.constant(0.01, shape = shape)
     return tf.Variable(initial)
+# 卷积函数
+def conv2d(x, W, stride):
+    return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "SAME") 
+    #实现卷积的函数
+# 池化 核 2*2 步长2
+def max_pool_2x2(x):
+    return tf.nn.max_pool(x, ksize = [1, 2, 2, 1], strides = [1, 2, 2, 1], padding = "SAME")
+# CNN
+def createNetwork():
+    # network weights
+    W_conv1 = weight_variable([8, 8, 4, 32])    # 卷积核patch的大小是8*8, RGBD,channel是4,输出是32个featuremap
+    b_conv1 = bias_variable([32])				# 传入它的shape为[32]
 
-# end of the DQN class
+    W_conv2 = weight_variable([4, 4, 32, 64])
+    b_conv2 = bias_variable([64])
 
+    W_conv3 = weight_variable([3, 3, 64, 64])
+    b_conv3 = bias_variable([64])
+
+    W_fc1 = weight_variable([1600, 512])
+    b_fc1 = bias_variable([512])
+
+    W_fc2 = weight_variable([512, ACTIONS])
+    b_fc2 = bias_variable([ACTIONS])
+    # input layer 输入层 输入向量为80*80*4
+    s = tf.placeholder("float", [None, 80, 80, 4])					# 
+    #print("s.shape",s.shape)
+    # 第一个隐藏层+一个池化层
+    h_conv1 = tf.nn.relu(conv2d(s, W_conv1, 4) + b_conv1)			#  
+    h_pool1 = max_pool_2x2(h_conv1)									# 
+    #print("h_pool1.shape",h_pool1.shape)
+    #第二个隐藏层
+    h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2, 2) + b_conv2)		#   
+    # 第三个隐藏层
+    h_conv3 = tf.nn.relu(conv2d(h_conv2, W_conv3, 1) + b_conv3)		# 
+    #print("h_conv3.shape",h_conv3.shape)
+    #展平
+    h_conv3_flat = tf.reshape(h_conv3, [-1, 1600])
+    #print("h_conv3_flat.shape",h_conv3_flat.shape)
+    # 第一个全连接层
+    h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, W_fc1) + b_fc1)
+    #print("h_fc1.shape",h_fc1.shape)
+    # readout layer  输出层
+    readout = tf.matmul(h_fc1, W_fc2) + b_fc2
+    #print("readout.size",readout.shape)
+    return s, readout, h_fc1
+###################################################################################################################################################
 
 # Hyper Parameters
 EPISODE = 10000 # Episode limitation
-STEP = 30 # Step limitation in an episode
+STEP = 20 # Step limitation in an episode
 TEST = 5 # The number of experiment test every 100 episode
 
-# the main loop
-def playGame():
-        # Generate a Torcs environment
-        env = TorcsEnv(vision=False, throttle=True,gear_change=False)
-        agent = DQN()
+def trainNetwork(s, readout, h_fc1, sess):
+    # define the cost function  定义损失函数
+    a = tf.placeholder("float", [None, ACTIONS]) #tf.placeholder 是 Tensorflow 中的占位符，暂时储存变量
+    y = tf.placeholder("float", [None])
+    readout_action = tf.reduce_sum(tf.multiply(readout, a), reduction_indices=1) #矩阵按行求和,multiply这个函数实现的是元素级别的相乘
+    cost = tf.reduce_mean( tf.square(y - readout_action) ) #张量tensor沿着指定的数轴（tensor的某一维度）上的的平均值
+    train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
+    # store the previous observations in replay memory
+    D = deque()
+    # start training
+    epsilon = INITIAL_EPSILON
+    for episode in range(EPISODE):
+        # open up a game state to communicate with emulator
+        env = TorcsEnv(vision=True, throttle=False,gear_change=False)
+        if np.mod(episode, 3) == 0:
+            ob = env.reset(relaunch=True)   #relaunch TORCS every 3 episode because of the memory leak error
+        else:
+            ob = env.reset()
 
-        for episode in range(EPISODE):
-            if np.mod(episode, 3) == 0:
-              ob = env.reset(relaunch=True)   #relaunch TORCS every 3 episode because of the memory leak error
+        if episode==0:
+            # get the first state by doing nothing and preprocess the image to 80x80x4
+            do_nothing = np.zeros(ACTIONS)
+            do_nothing[0] = 1
+            ob, r_0, terminal, info = env.step(do_nothing)
+            x_t=ob.img
+            print("type(x_t)",type(x_t))
+            #x_t, r_0, terminal = game_state.frame_step(do_nothing)
+            x_t=x_t.swapaxes(0,2)
+            print("x_t.shape",x_t.shape)
+            #将图像转换成80*80，并进行灰度化
+            #Resize image to 80x80, Convert image to grayscale,remove the background appeared in the original game can make it converge faster
+            x_t=cv2.resize(x_t, (80, 80))
+            print("x_t.shape",x_t.shape)
+            x_t = cv2.cvtColor(x_t, cv2.COLOR_BGR2GRAY)  
+
+            ret, x_t = cv2.threshold(x_t,1,255,cv2.THRESH_BINARY)  #对图像进行二值化,从灰度图像中获取二进制图像或用于消除噪声，即滤除太小或太小的像素
+            s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)  # 将图像处理成4通道,stack last 4 frames to produce an 80x80x4 input array for network
+
+
+
+        for step in range(STEP):
+            # choose an action epsilon greedily
+            readout_t = readout.eval(feed_dict={s : [s_t]})[0]   #将当前环境输入到CNN网络中
+            a_t = np.zeros([ACTIONS])
+            action_index = 0
+
+            if step % FRAME_PER_ACTION == 0:
+                if random.random() <= epsilon:
+                    print("----------Random Action----------")
+                    action_index = random.randrange(ACTIONS)
+                    a_t[random.randrange(ACTIONS)] = 1
+                else:
+                    action_index = np.argmax(readout_t)
+                    a_t[action_index] = 1
             else:
-              ob = env.reset()
+                a_t[0] = 1 # do nothing
 
-            state = np.hstack((ob.angle, ob.track, ob.trackPos, ob.speedX, ob.speedY,  ob.speedZ, ob.wheelSpinVel/100.0, ob.rpm))     
+            # scale down epsilon
+            if epsilon > FINAL_EPSILON and step > OBSERVE:
+                epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
 
-          # Train
-            for step in range(STEP):
-              action = agent.egreedy_action(state) # e-greedy action for train########################################3
+            # run the selected action and observe next state and reward
+            #  x_t1_colored, r_t, terminal = game_state.frame_step(a_t)                   # 执行选择的动作，并保存返回的状态、得分
+            ob, r_t, terminal, info = env.step(a_t)
+            x_t1_colored=ob.img
+            x_t1_colored=x_t1_colored.swapaxes(0,2)
+            x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
+            ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
+
+            x_t1 = np.reshape(x_t1, (80, 80, 1))
+            s_t1 = np.append(x_t1, s_t[:, :, :3], axis=2)
+
+            # store the transition in D
+            #   经验池保存的是以一个马尔科夫序列于D中
+            D.append((s_t, a_t, r_t, s_t1, terminal))
+        
+            if len(D) > REPLAY_MEMORY:
+                D.popleft()
+
+            # only train if done observing
+            if step > OBSERVE:  #OBSERVE = 100000.# timesteps to observe before training
+                # sample a minibatch to train on
+                minibatch = random.sample(D, BATCH)  #32
+
+                # get the batch variables
+                s_j_batch = [d[0] for d in minibatch]
+                a_batch = [d[1] for d in minibatch]
+                r_batch = [d[2] for d in minibatch]
+                s_j1_batch = [d[3] for d in minibatch]
+
+                readout_j1_batch = readout.eval(feed_dict = {s : s_j1_batch})
+                y_batch = []  #y_batch表示标签值，如果下一时刻游戏关闭则直接用奖励做标签值，若游戏没有关闭，则要在奖励的基础上加上GAMMA比例的下一时刻最大的模型预测值
+                for i in range(0, len(minibatch)):
+                    terminal = minibatch[i][4]
+                    # if terminal, only equals reward
+                    if terminal:
+                        y_batch.append(r_batch[i])
+                    else:
+                        y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
+                # perform gradient step
+                train_step.run(  feed_dict = {y : y_batch, a : a_batch, s : s_j_batch}  )
+
+            # update the old values
+            s_t = s_t1
+            step += 1
+            # save progress every 10000 iterations
+            if step % 10000 == 0:
+                saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step = step)
+
+            # print info
+            state = ""
+            if step <= OBSERVE:
+                state = "observe"
+            elif step > OBSERVE and step <= OBSERVE + EXPLORE:
+                state = "explore"
+            else:
+                state = "train"
+
+            print("TIMESTEP", step, "/ STATE", state,  "/ EPSILON", epsilon, "/ ACTION", action_index, "/ REWARD", r_t,  "/ Q_MAX %e" % np.max(readout_t))
 
 
-              ob, r_t, done, info = env.step(action)
-              state_next = np.hstack((ob.angle, ob.track, ob.trackPos, ob.speedX, ob.speedY, ob.speedZ, ob.wheelSpinVel/100.0, ob.rpm))        
 
 
-              agent.perceive(state,action,r_t,state_next,done)
-              state = state_next
-
-              if done:
-               break
-
-        env.end()  # This is for shutting down TORCS
-        print("Finish.")
-
-
-
+def playGame():
+    sess = tf.InteractiveSession()
+    s, readout, h_fc1 = createNetwork()
+    sess.run(tf.initialize_all_variables())
+    print("create net work successfully")
+    trainNetwork(s, readout, h_fc1, sess)
 
 if __name__ == '__main__':
     playGame()
