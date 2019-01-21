@@ -53,8 +53,7 @@ for episode = 1, M do
 	    
         Perform a gradient step on (y_j-Q(s_j,a_j; θ_i))^2 with respect to θ
 	
-    end for
-    
+    end for    
 end for
 
 
