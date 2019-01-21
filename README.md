@@ -46,4 +46,5 @@ end for
 
 Still have bugs due to : 
 
+
 2019-01-21 10:44:42.124830: W tensorflow/core/framework/allocator.cc:113] Allocation of 26214400 exceeds 10% of system memory.
