@@ -2,6 +2,7 @@
 
 The input of the DQN_angent is a front camera's images
 The outputs are three actions:
+
 	steer: 方向, 取值范围 [-1,1]
 	accel： 油门，取值范围 [0,1]
 	brake: 刹车，取值范围 [0,1]
@@ -43,4 +44,6 @@ end for
 
 
 
-Still have bugs due to : 2019-01-21 10:44:42.124830: W tensorflow/core/framework/allocator.cc:113] Allocation of 26214400 exceeds 10% of system memory.
+Still have bugs due to : 
+
+2019-01-21 10:44:42.124830: W tensorflow/core/framework/allocator.cc:113] Allocation of 26214400 exceeds 10% of system memory.
