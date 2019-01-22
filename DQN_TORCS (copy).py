@@ -21,7 +21,7 @@ import cv2
 # Hyper Parameters for DQN
 ACTIONS = 3 				# number of valid actions
 GAMMA = 0.99 				# decay rate of past observations
-OBSERVE =10			# timesteps to observe before training
+OBSERVE = 10 			# timesteps to observe before training
 EXPLORE = 20. 		    # frames over which to anneal epsilon
 
 REPLAY_MEMORY = 50 		# number of previous transitions to remember
@@ -84,7 +84,7 @@ def createNetwork():
 
 # Hyper Parameters
 EPISODE = 10000 # Episode limitation
-STEP = 30 # Step limitation in an episode
+STEP = 20 # Step limitation in an episode
 TEST = 5 # The number of experiment test every 100 episode
 
 def trainNetwork(s, readout, h_fc1, sess):
