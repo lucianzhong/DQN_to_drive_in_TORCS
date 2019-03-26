@@ -40,4 +40,4 @@ end for
 
 Still have bugs:
 2019-01-21 10:44:42.124830: W tensorflow/core/framework/allocator.cc:113] Allocation of 26214400 exceeds 10% of system memory.
-The Q-learning can not handle the continous inputs????????????
+The Q-learning can not handle the continuous inputs????????????
