@@ -20,7 +20,7 @@ The files:
 gym_torcs.py is the sensor configuration file for TORCS
 
 
-The pseudo-code for the DQN:
+The pseudo-code for the DQN:       	
 Initialize replay memory D to size N
 Initialize action-value function Q with random weights
 for episode = 1, M do
@@ -35,7 +35,7 @@ for episode = 1, M do
             r_j+γ*max_(a^' )  Q(s_(j+1),a'; θ_i) for non-terminal s_(j+1)	    
         Perform a gradient step on (y_j-Q(s_j,a_j; θ_i))^2 with respect to θ	
     end for    
-end for
+end for      			
 
 
 Still have bugs due to : 
